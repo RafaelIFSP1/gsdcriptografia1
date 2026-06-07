@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
 
@@ -6,332 +6,62 @@ namespace CriptografiaMusical
 {
     public partial class Form1 : Form
     {
-        // -------------------------------------------------------
-        // TABELA DE SUBSTITUIÇÃO (criada manualmente)
-        // -------------------------------------------------------
-        private Dictionary<char, char> tabCripto = new Dictionary<char, char>()
-        {
-            {'a','k'},{'b','x'},{'c','r'},{'d','f'},{'e','q'},
-            {'f','z'},{'g','n'},{'h','v'},{'i','p'},{'j','b'},
-            {'k','y'},{'l','o'},{'m','e'},{'n','w'},{'o','u'},
-            {'p','h'},{'q','j'},{'r','g'},{'s','m'},{'t','i'},
-            {'u','a'},{'v','c'},{'w','d'},{'x','l'},{'y','s'},
-            {'z','t'}
+        // Letras a-m viram 4 dígitos do pi (com zero à esquerda se necessário):
+        //   a = "0003"  (pi começa em 3)
+        //   b = "1415"
+        //   c = "9265" ... até m = "9375"
+        // Letras n-z viram outras letras pela tabela manual abaixo.
+        string[] letrasOrigem = {
+            "a","b","c","d","e","f","g","h","i","j","k","l","m",
+            "n","o","p","q","r","s","t","u","v","w","x","y","z"
+        };
+        string[] letrasCripto = {
+            "0003","1415","9265","3589","7932","3846","2643","3832",
+            "7950","2884","1971","6939","9375",
+            "w","u","h","j","g","m","i","a","c","d","l","s","t"
         };
 
-        private Dictionary<char, char> tabDescripto = new Dictionary<char, char>();
+        // caracteres especiais viram nomes de instrumentos
+        string[] caracteresEspeciais = { " ", "ç", "á", "é", "ã", "!", "?" };
+        string[] nomesInstrumentos = { "VIOLINO", "FLAUTA", "PIANO", "TROMPETE", "BATERIA", "GUITARRA", "SAXOFONE" };
 
-        // -------------------------------------------------------
-        // TABELA DE INSTRUMENTOS (caracteres especiais)
-        // -------------------------------------------------------
-        private Dictionary<char, string> tabInstrumentos = new Dictionary<char, string>()
+        // morse das letras (sem duplicatas)
+        Dictionary<char, string> letraParaMorseTab = new Dictionary<char, string>
         {
-            {' ', "VIOLINO"},
-            {'ç', "FLAUTA"},
-            {'á', "PIANO"},
-            {'é', "TROMPETE"},
-            {'ã', "BATERIA"},
-            {'!', "GUITARRA"},
-            {'?', "SAXOFONE"}
+            {'a',".-"},  {'b',"-..."}, {'c',"-.-."}, {'d',"-.."}, {'e',"."},
+            {'f',"..-."}, {'g',"--."}, {'h',"...."},  {'i',".."},  {'j',".---"},
+            {'k',"-.-"}, {'l',".-.."}, {'m',"--"},   {'n',"-."},  {'o',"---"},
+            {'p',".--."},{'q',"--.-"},{'r',".-."},   {'s',"..."},  {'t',"-"},
+            {'u',"..-"}, {'v',"...-"}, {'w',".--"},  {'x',"-..-"},{'y',"-.--"},
+            {'z',"--.."}
         };
 
-        private Dictionary<string, char> tabInstrumentosInv = new Dictionary<string, char>();
-
-        // -------------------------------------------------------
-        // TABELA MORSE PERSONALIZADA
-        // Importante: nenhuma letra gera os padrões reservados abaixo
-        // -------------------------------------------------------
-        private Dictionary<char, string> tabMorse = new Dictionary<char, string>()
+        // morse dos dígitos 0-9
+        Dictionary<char, string> digitoParaMorseTab = new Dictionary<char, string>
         {
-            {'a',".-"},  {'b',"-..."},{'c',"-.-."},{'d',"-.."},
-            {'e',"."},   {'f',"..-."},{'g',"--."},  {'h',"...."},
-            {'i',".."},  {'j',".---"},{'k',"-.-"},  {'l',".-.."},
-            {'m',"--"},  {'n',"-."},  {'o',"---"},  {'p',".--."},
-            {'q',"--.-"},{'r',".-."},  {'s',"..."},  {'t',"-"},
-            {'u',"..-"}, {'v',"...-"},{'w',".--"},   {'x',"-..-"},
-            {'y',"-.--"},{'z',"--.."}
+            {'0',"-----"},{'1',".----"},{'2',"..---"},{'3',"...--"},{'4',"....-"},
+            {'5',"....."},{'6',"-...."},{'7',"--..."},{'8',"---.."},{'9',"----."}
         };
 
-        private Dictionary<string, char> tabMorseInv = new Dictionary<string, char>();
+        // tabelas inversas (preenchidas no construtor)
+        Dictionary<string, char> morseParaLetraTab = new Dictionary<string, char>();
+        Dictionary<string, char> morseParaDigitoTab = new Dictionary<string, char>();
 
-        // -------------------------------------------------------
-        // PADRÕES RESERVADOS - só pontos e traços, nunca gerados
-        // pela tabela Morse acima.
-        //
-        // PRE_MAI  = "....."  (5 pontos) - prefixo de letra maiúscula
-        // PRE_ESP  = "-------" (7 traços) - prefixo de instrumento
-        //
-        // A tabela usa "h" = "...." (4 pontos) e "s" = "..." (3 pontos),
-        // então "....." (5 pontos) nunca aparece como letra.
-        // A tabela usa "o" = "---" (3 traços) e "j" = ".---" (4 traços),
-        // então "-------" (7 traços) nunca aparece como letra.
-        //
-        // Separador entre tokens = " " (espaço simples)
-        // -------------------------------------------------------
-        private const string PRE_MAI = ".....";    // 5 pontos = maiúscula
-        private const string PRE_ESP = "-------";  // 7 traços  = instrumento
-        private const string SEP = " ";        // separa tokens
+        // Prefixos em Morse puro (não existem nas tabelas de letras nem de dígitos):
+        //   "......"   6 pontos = próxima letra é MAIÚSCULA
+        //   "......."  7 pontos = próximos 4 tokens são DÍGITOS DO PI (letras a-m)
+        //   "........" 8 pontos = ABRE ou FECHA bloco de instrumento
+        const string PRE_MAI = "......";
+        const string PRE_NUM = ".......";
+        const string PRE_ESP = "........";
+        const string SEP = " ";
 
-        // -------------------------------------------------------
         public Form1()
         {
             InitializeComponent();
-            MontarTabelasInversas();
-        }
 
-        private void MontarTabelasInversas()
-        {
-            foreach (var p in tabCripto) tabDescripto[p.Value] = p.Key;
-            foreach (var p in tabInstrumentos) tabInstrumentosInv[p.Value] = p.Key;
-            foreach (var p in tabMorse) tabMorseInv[p.Value] = p.Key;
-        }
-
-        // -------------------------------------------------------
-        // PASSO 1 CRIPTO
-        // Substitui letras pela tabela e converte especiais em
-        // nomes de instrumentos deslocados, marcados com @...@
-        // -------------------------------------------------------
-        private string SubstituirLetrasEInstrumentos(string texto)
-        {
-            string resultado = "";
-            for (int i = 0; i < texto.Length; i++)
-            {
-                char c = texto[i];
-                char cMin = char.ToLower(c);
-
-                if (tabInstrumentos.ContainsKey(c))
-                {
-                    string deslocado = DeslocarInstrumento(tabInstrumentos[c]);
-                    resultado += "@" + deslocado + "@";
-                }
-                else if (tabCripto.ContainsKey(cMin))
-                {
-                    char novo = tabCripto[cMin];
-                    if (char.IsUpper(c)) novo = char.ToUpper(novo);
-                    resultado += novo;
-                }
-                else
-                {
-                    resultado += c;
-                }
-            }
-            return resultado;
-        }
-
-        // Desloca cada letra do nome do instrumento +1 no alfabeto
-        private string DeslocarInstrumento(string nome)
-        {
-            string r = "";
-            foreach (char c in nome)
-            {
-                if (c == 'Z') r += 'A';
-                else if (c >= 'A' && c <= 'Z') r += (char)(c + 1);
-                else r += c;
-            }
-            return r;
-        }
-
-        // -------------------------------------------------------
-        // PASSO 2 CRIPTO
-        // Converte o texto intermediário para Morse puro.
-        //
-        // Cada token na saída é separado por espaço simples.
-        // Regras:
-        //   minúscula → morse da letra
-        //   maiúscula → "....." (PRE_MAI) espaço morse_da_letra
-        //   instrumento → "-------" (PRE_ESP) espaço morse_L1 espaço morse_L2 ...
-        //                 espaço "-------" (PRE_ESP novamente, fecha o bloco)
-        //
-        // O bloco do instrumento é delimitado por dois PRE_ESP,
-        // assim o parser sabe exatamente onde começa e termina,
-        // sem precisar saber quantas letras o instrumento tem.
-        // -------------------------------------------------------
-        private string ConverterParaMorse(string texto)
-        {
-            List<string> tokens = new List<string>();
-            int i = 0;
-
-            while (i < texto.Length)
-            {
-                if (texto[i] == '@')
-                {
-                    int fim = texto.IndexOf('@', i + 1);
-                    if (fim > i)
-                    {
-                        string conteudo = texto.Substring(i + 1, fim - i - 1);
-
-                        // abre bloco com PRE_ESP
-                        tokens.Add(PRE_ESP);
-
-                        // adiciona o morse de cada letra do instrumento
-                        foreach (char lc in conteudo)
-                        {
-                            string m = ObterMorse(char.ToLower(lc));
-                            if (m != null) tokens.Add(m);
-                        }
-
-                        // fecha bloco com PRE_ESP novamente
-                        tokens.Add(PRE_ESP);
-
-                        i = fim + 1;
-                        continue;
-                    }
-                }
-
-                char c = texto[i];
-
-                if (char.IsUpper(c))
-                {
-                    string m = ObterMorse(char.ToLower(c));
-                    if (m != null)
-                    {
-                        tokens.Add(PRE_MAI);  // sinaliza maiúscula
-                        tokens.Add(m);        // morse da letra
-                    }
-                }
-                else if (char.IsLower(c))
-                {
-                    string m = ObterMorse(c);
-                    if (m != null) tokens.Add(m);
-                }
-
-                i++;
-            }
-
-            return string.Join(SEP, tokens);
-        }
-
-        private string ObterMorse(char c)
-        {
-            if (tabMorse.ContainsKey(c)) return tabMorse[c];
-            return null;
-        }
-
-        // -------------------------------------------------------
-        // PASSO 1 DESCRIPTO
-        // Lê a sequência Morse e reconstrói o texto intermediário.
-        //
-        // Parser:
-        //   token = "....."   → próximo token é letra maiúscula
-        //   token = "-------" → início de bloco instrumento;
-        //                       coleta tokens até o próximo "-------"
-        //   qualquer outro    → letra minúscula
-        // -------------------------------------------------------
-        private string ConverterMorseParaTexto(string morse)
-        {
-            string[] tokens = morse.Split(new string[] { SEP }, StringSplitOptions.RemoveEmptyEntries);
-            string resultado = "";
-            int i = 0;
-
-            while (i < tokens.Length)
-            {
-                string token = tokens[i];
-
-                if (token == PRE_MAI)
-                {
-                    // próximo token = morse da letra maiúscula
-                    i++;
-                    if (i < tokens.Length)
-                    {
-                        char letra = ObterLetra(tokens[i]);
-                        resultado += char.ToUpper(letra);
-                    }
-                    i++;
-                }
-                else if (token == PRE_ESP)
-                {
-                    // início de bloco instrumento: coleta até o próximo PRE_ESP
-                    i++;
-                    string nomeInstrumento = "";
-                    while (i < tokens.Length && tokens[i] != PRE_ESP)
-                    {
-                        char letra = ObterLetra(tokens[i]);
-                        nomeInstrumento += char.ToUpper(letra);
-                        i++;
-                    }
-                    // pula o PRE_ESP de fechamento
-                    if (i < tokens.Length) i++;
-
-                    resultado += "@" + nomeInstrumento + "@";
-                }
-                else
-                {
-                    // letra minúscula
-                    char letra = ObterLetra(token);
-                    resultado += letra;
-                    i++;
-                }
-            }
-
-            return resultado;
-        }
-
-        private char ObterLetra(string morse)
-        {
-            if (tabMorseInv.ContainsKey(morse)) return tabMorseInv[morse];
-            return '?';
-        }
-
-        // -------------------------------------------------------
-        // PASSO 2 DESCRIPTO
-        // Desfaz as substituições de letras e converte os blocos
-        // @instrumento@ de volta para o caractere original.
-        // -------------------------------------------------------
-        private string DesfazerSubstituicao(string texto)
-        {
-            string resultado = "";
-            int i = 0;
-
-            while (i < texto.Length)
-            {
-                if (texto[i] == '@')
-                {
-                    int fim = texto.IndexOf('@', i + 1);
-                    if (fim > i)
-                    {
-                        string deslocado = texto.Substring(i + 1, fim - i - 1);
-                        string original = DesfazerDeslocamento(deslocado);
-
-                        if (tabInstrumentosInv.ContainsKey(original))
-                            resultado += tabInstrumentosInv[original];
-                        else
-                            resultado += "[?]";
-
-                        i = fim + 1;
-                        continue;
-                    }
-                }
-
-                char c = texto[i];
-                char cMin = char.ToLower(c);
-
-                if (tabDescripto.ContainsKey(cMin))
-                {
-                    char orig = tabDescripto[cMin];
-                    if (char.IsUpper(c)) orig = char.ToUpper(orig);
-                    resultado += orig;
-                }
-                else
-                {
-                    resultado += c;
-                }
-
-                i++;
-            }
-
-            return resultado;
-        }
-
-        private string DesfazerDeslocamento(string nome)
-        {
-            string r = "";
-            foreach (char c in nome)
-            {
-                if (c == 'A') r += 'Z';
-                else if (c >= 'A' && c <= 'Z') r += (char)(c - 1);
-                else r += c;
-            }
-            return r;
+            foreach (var p in letraParaMorseTab) morseParaLetraTab[p.Value] = p.Key;
+            foreach (var p in digitoParaMorseTab) morseParaDigitoTab[p.Value] = p.Key;
         }
 
         // -------------------------------------------------------
@@ -339,14 +69,48 @@ namespace CriptografiaMusical
         // -------------------------------------------------------
         private void btnCriptografar_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(txtEntrada.Text))
+            if (txtEntrada.Text == "")
             {
-                MessageBox.Show("Digite uma mensagem para criptografar.");
+                MessageBox.Show("Digite uma mensagem.");
                 return;
             }
-            string passo1 = SubstituirLetrasEInstrumentos(txtEntrada.Text);
-            string passo2 = ConverterParaMorse(passo1);
-            txtSaida.Text = passo2;
+
+            string mensagem = txtEntrada.Text;
+            string resultado = "";
+
+            for (int i = 0; i < mensagem.Length; i++)
+            {
+                char letra = mensagem[i];
+
+                // caractere especial (espaço, ç, á, etc.)
+                int idxEsp = Encontrar(caracteresEspeciais, letra.ToString());
+                if (idxEsp >= 0)
+                {
+                    string deslocado = DeslocarInstrumento(nomesInstrumentos[idxEsp]);
+                    resultado += PRE_ESP + SEP;
+                    foreach (char lc in deslocado)
+                        resultado += letraParaMorseTab[char.ToLower(lc)] + SEP;
+                    resultado += PRE_ESP + SEP;
+                    continue;
+                }
+
+                // letra do alfabeto
+                int idxLetra = Encontrar(letrasOrigem, char.ToLower(letra).ToString());
+                if (idxLetra < 0) continue;
+
+                string cripto = letrasCripto[idxLetra];
+
+                if (char.IsUpper(letra)) resultado += PRE_MAI + SEP;
+                if (idxLetra < 13) resultado += PRE_NUM + SEP; // letras a-m = grupo pi
+
+                foreach (char cc in cripto)
+                {
+                    string m = char.IsDigit(cc) ? digitoParaMorseTab[cc] : letraParaMorseTab[cc];
+                    resultado += m + SEP;
+                }
+            }
+
+            txtSaida.Text = resultado.Trim();
         }
 
         // -------------------------------------------------------
@@ -354,14 +118,116 @@ namespace CriptografiaMusical
         // -------------------------------------------------------
         private void btnDescriptografar_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(txtEntrada.Text))
+            if (txtEntrada.Text == "")
             {
-                MessageBox.Show("Cole o código criptografado para descriptografar.");
+                MessageBox.Show("Cole o código para descriptografar.");
                 return;
             }
-            string passo1 = ConverterMorseParaTexto(txtEntrada.Text);
-            string passo2 = DesfazerSubstituicao(passo1);
-            txtSaida.Text = passo2;
+
+            string[] tokens = txtEntrada.Text.Trim().Split(' ');
+            string resultado = "";
+            int i = 0;
+
+            while (i < tokens.Length)
+            {
+                if (tokens[i] == "") { i++; continue; }
+
+                // prefixo de maiúscula
+                bool maiuscula = false;
+                if (tokens[i] == PRE_MAI) { maiuscula = true; i++; }
+                if (i >= tokens.Length) break;
+
+                // bloco de instrumento
+                if (tokens[i] == PRE_ESP)
+                {
+                    i++;
+                    string nomeDeslocado = "";
+                    while (i < tokens.Length && tokens[i] != PRE_ESP)
+                    {
+                        if (tokens[i] != "" && morseParaLetraTab.ContainsKey(tokens[i]))
+                            nomeDeslocado += char.ToUpper(morseParaLetraTab[tokens[i]]);
+                        i++;
+                    }
+                    i++; // pula o PRE_ESP de fechamento
+                    string nomeOriginal = DesfazerDeslocamento(nomeDeslocado);
+                    int idx = Encontrar(nomesInstrumentos, nomeOriginal);
+                    if (idx >= 0) resultado += caracteresEspeciais[idx];
+                    continue;
+                }
+
+                // grupo de 4 dígitos do pi (letras a até m)
+                if (tokens[i] == PRE_NUM)
+                {
+                    i++;
+                    string grupo = "";
+                    for (int j = 0; j < 4 && i < tokens.Length; j++)
+                    {
+                        if (morseParaDigitoTab.ContainsKey(tokens[i]))
+                            grupo += morseParaDigitoTab[tokens[i]];
+                        i++;
+                    }
+                    int idx = Encontrar(letrasCripto, grupo);
+                    if (idx >= 0)
+                        resultado += maiuscula ? letrasOrigem[idx].ToUpper() : letrasOrigem[idx];
+                    continue;
+                }
+
+                // letra n-z: 1 token morse
+                if (morseParaLetraTab.ContainsKey(tokens[i]))
+                {
+                    char letraDecodificada = morseParaLetraTab[tokens[i]];
+                    i++;
+                    int idx = Encontrar(letrasCripto, letraDecodificada.ToString());
+                    if (idx >= 0)
+                        resultado += maiuscula ? letrasOrigem[idx].ToUpper() : letrasOrigem[idx];
+                }
+                else
+                {
+                    i++;
+                }
+            }
+
+            txtSaida.Text = resultado;
         }
+
+        // -------------------------------------------------------
+        // FUNÇÕES AUXILIARES
+        // -------------------------------------------------------
+
+        // busca um valor num array e retorna o índice (-1 se não encontrar)
+        int Encontrar(string[] array, string valor)
+        {
+            for (int i = 0; i < array.Length; i++)
+                if (array[i] == valor) return i;
+            return -1;
+        }
+
+        // desloca cada letra do nome do instrumento +1 no alfabeto
+        string DeslocarInstrumento(string nome)
+        {
+            string r = "";
+            foreach (char c in nome)
+            {
+                if (c == 'Z') r += 'A';
+                else r += (char)(c + 1);
+            }
+            return r;
+        }
+
+        // desfaz o deslocamento (-1 em cada letra)
+        string DesfazerDeslocamento(string nome)
+        {
+            string r = "";
+            foreach (char c in nome)
+            {
+                if (c == 'A') r += 'Z';
+                else r += (char)(c - 1);
+            }
+            return r;
+        }
+
+        // -------------------------------------------------------
+        // BOTÃO CRIPTOGRAFAR e DESCRIPTOGRAFAR estão acima
+        // -------------------------------------------------------
     }
 }
